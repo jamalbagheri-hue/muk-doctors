@@ -89,11 +89,11 @@ async function kdf(pw,salt,n,use){const km=await crypto.subtle.importKey('raw',n
 async function unwrap(e,pw,tag){const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']),key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:B(e[tag+'s']),iterations:e.n,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']),raw=await crypto.subtle.decrypt({name:'AES-GCM',iv:B(e[tag+'i'])},key,B(e[tag+'c']));return new Uint8Array(raw)}
 async function decData(e,dk){const key=await crypto.subtle.importKey('raw',dk,'AES-GCM',false,['decrypt']),pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:B(e.di)},key,B(e.dc));return JSON.parse(e.z?await zip(pt,DecompressionStream).text():new TextDecoder().decode(pt))}
 async function encData(env,dk,data){const raw=await zip(JSON.stringify(data),CompressionStream).arrayBuffer(),key=await crypto.subtle.importKey('raw',dk,'AES-GCM',false,['encrypt']),iv=crypto.getRandomValues(new Uint8Array(12)),ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,raw);return{...env,di:b64(iv),dc:b64(new Uint8Array(ct)),z:1,t:Date.now()}}
-const LSKEY='doctors-report-data-v1';
-async function loadRemote(){try{const raw=localStorage.getItem(LSKEY);return raw?JSON.parse(raw):null}catch(_){return null}}
-async function saveRemote(e){try{localStorage.setItem(LSKEY,JSON.stringify(e));return true}catch(_){return false}}
+const dbref=async()=>{try{const db=await claude?.use('db');return db&&db.doc('report/current')}catch(e){return null}};
+const DBMSG={invalid_argument:'داده نامعتبر یا بیش از حد بزرگ بود.',resource_exhausted:'ترافیک زیاد است؛ کمی بعد دوباره امتحان کنید.',quota_exceeded:'ظرفیت ذخیره‌سازی پر شده است.',unavailable:'خطای موقت سرور؛ دوباره امتحان کنید.',revoked:'دسترسی ذخیره‌سازی این صفحه لغو شده است.',not_granted:'این نسخه صفحه اجازه ذخیره‌سازی ندارد.',capability_disabled:'ذخیره‌سازی روی این نمایشگر فعال نیست.',capability_removed:'ذخیره‌سازی در این نسخه در دسترس نیست.',transform_error:'خطا در آماده‌سازی داده برای ذخیره.'};
+const dbMsg=e=>(e&&DBMSG[e.code])||'ذخیره برای دیگران ممکن نشد.';
 async function unlock(){$('err').textContent='';$('go').disabled=true;const pw=$('pw').value;
-try{let e=E;try{const x=await loadRemote();if(x&&x.t>E.t)e=x}catch(_){}
+try{let e=E;try{const r=await dbref(),s=r&&await r.get();if(s&&s.exists){const x=s.data();if(x.t>E.t)e=x}}catch(_){}
 let dk,role;try{dk=await unwrap(e,pw,'a');role='admin'}catch(_){try{dk=await unwrap(e,pw,'r');role='readonly'}catch(__){throw new Error('bad')}}
 D=await decData(e,dk);D.x=D.x||[];DK=dk;ROLE=role;ENV={as:e.as,ai:e.ai,ac:e.ac,rs:e.rs,ri:e.ri,rc:e.rc,n:e.n};
 $('lock').hidden=true;$('app').hidden=false;index();draw()}catch(x){$('err').textContent='رمز نادرست است.';$('go').disabled=false}}
@@ -166,9 +166,9 @@ $('res').onchange=async e=>{if(ROLE!='admin')return;const s=e.target.closest('[d
 $('res').onclick=e=>{const a2=e.target.closest('a.dl');if(!a2)return;e.preventDefault();const row=m[+a2.dataset.fi];if(row)showDetail(row)};
 ['q','fp','fl','fc','ff'].forEach(i=>$(i).oninput=f);f()}
 let ADDLOG=[];
-async function saveD(){if(ROLE!=='admin')return{ok:false,msg:'دسترسی فقط خواندنی است.'};const e=await encData(ENV,DK,{r:D.r,x:D.x});const ok=await saveRemote(e);if(ok)dirty=true;return{ok,msg:ok?'':'ذخیره محلی روی این مرورگر ناموفق بود.'}}
+async function saveD(){if(ROLE!=='admin')return{ok:false,msg:'دسترسی فقط خواندنی است.'};const e=await encData(ENV,DK,{r:D.r,x:D.x});try{const d=await dbref();if(!d)return{ok:false,msg:'قابلیت ذخیره‌سازی فعال نیست.'};await d.set(e);dirty=true;return{ok:true,msg:''}}catch(err){return{ok:false,msg:dbMsg(err)}}}
 const add=()=>{const places=[...new Set(D.r.map(r=>r[0]))],specs=[...new Set(D.r.map(r=>r[2]))].filter(Boolean);
-return `<h3>افزودن پزشک جدید</h3><p class=mu>پس از افزودن، در همه برگ‌ها (آمار، فهرست، نمودار، ماتریس) بلافاصله اعمال می‌شود و فقط در همین مرورگر ذخیره می‌شود. برای اینکه همه ببینند، از دکمه «⬇️ دانلود اکسل» استفاده کنید و فایل جدید را به سازنده صفحه بدهید.</p>
+return `<h3>افزودن پزشک جدید</h3><p class=mu>پس از افزودن، در همه برگ‌ها (آمار، فهرست، نمودار، ماتریس) بلافاصله اعمال می‌شود و برای همه بینندگان ذخیره می‌شود.</p>
 <div style="display:grid;gap:8px;max-width:420px">
 <input id=an placeholder="نام پزشک">
 <input id=ap list=cl placeholder="مکان (مثلاً سقز یا سنندج - کوثر)"><datalist id=cl>${places.map(p=>`<option value="${esc(p)}">`).join('')}</datalist>
@@ -187,7 +187,7 @@ $('aa').onclick=async()=>{const n=nm($('an').value),p=nm($('ap').value),l=$('al'
 if(!n||!p||!s){m.textContent='نام، مکان و رشته را وارد کنید.';return}
 const row=[p,l,s,n,w,p.includes('سنندج')?1:0,ft];$('aa').disabled=true;m.textContent='در حال ذخیره...';
 D.r.push(row);ADDLOG.push(row);index();
-const{ok,msg}=await saveD();m.textContent=ok?'✓ اضافه و در این مرورگر ذخیره شد.':'اضافه شد ولی ذخیره محلی ممکن نشد: '+msg;
+const{ok,msg}=await saveD();m.textContent=ok?'✓ اضافه و برای همه ذخیره شد.':'اضافه شد ولی ذخیره برای دیگران ممکن نشد: '+msg;
 $('an').value='';$('ap').value='';$('as').value='';$('af').value='unset';$('aa').disabled=false;renderLog()};
 $('adl').onclick=downloadXlsx}
 function buildFullWorkbook(){
@@ -261,9 +261,13 @@ ws4['!cols']=[26,18,20,12,24,18,20,14,16,14,20,24,28].map(w=>({wch:w}));
 XLSX.utils.book_append_sheet(wb,ws4,'لیست پزشکان خارج شده');
 return wb}
 
-function downloadXlsx(){if(typeof XLSX=='undefined'){notify('کتابخانه اکسل بارگذاری نشد');return}
-const wb=buildFullWorkbook();XLSX.writeFile(wb,'doctors-database.xlsx');dirty=false;draw()}
-const upd=()=>`<h3>به‌روزرسانی داده‌ها</h3><p class=mu>فایل اکسل پایگاه داده (doctors-database.xlsx) را پس از ویرایش انتخاب کنید. آمار و فهرست همان لحظه دوباره محاسبه می‌شود و نسخه جدید (رمزنگاری‌شده) فقط در همین مرورگر ذخیره می‌شود — برای اینکه همه ببینند، فایل اکسل به‌روزشده را دانلود و به سازنده صفحه بدهید تا نسخه HTML جدید بسازد و جایگزین فایل روی سرور شود. ستون‌های «نام پزشک»، «منطقه»، «مکان»، «سطح»، «تخصص» و «رابطه کاری» باید در ردیف اول فایل باشند.</p><input id=fl type=file accept=".xlsx"><button id=ub class=tb>بارگذاری و به‌روزرسانی</button><p id=us></p>`;
+async function downloadXlsx(){if(typeof XLSX=='undefined'){notify('کتابخانه اکسل بارگذاری نشد');return}
+const wb=buildFullWorkbook(),buf=XLSX.write(wb,{type:'array',bookType:'xlsx'}),blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+try{const dl=await claude?.use('downloads');if(!dl){notify('دانلود در این نمایشگر در دسترس نیست.');return}
+await dl.save({filename:'doctors-database.xlsx',data:blob});dirty=false;draw()}
+catch(err){const M={rejected_extension:'پسوند فایل مجاز نیست.',extension_not_enabled:'این نوع فایل در این نما فعال نیست.',too_large:'حجم فایل بیش از حد مجاز است.',declined:'دانلود لغو شد.',rate_limited:'کمی صبر کنید و دوباره امتحان کنید.',bad_request:'خطای داخلی در آماده‌سازی فایل.'};
+notify((err&&M[err.code])||'دانلود در این نمایشگر در دسترس نیست.')}}
+const upd=()=>`<h3>به‌روزرسانی داده‌ها</h3><p class=mu>فایل اکسل پایگاه داده (doctors-database.xlsx) را پس از ویرایش انتخاب کنید. آمار و فهرست همان لحظه دوباره محاسبه می‌شود و نسخه جدید (رمزنگاری‌شده) برای همه بینندگان ذخیره می‌شود. ستون‌های «نام پزشک»، «منطقه»، «مکان»، «سطح»، «تخصص» و «رابطه کاری» باید در ردیف اول فایل باشند.</p><input id=fl type=file accept=".xlsx"><button id=ub class=tb>بارگذاری و به‌روزرسانی</button><p id=us></p>`;
 function parseRows(a){const H=a[0]||[],ix=t=>H.findIndex(h=>nm(String(h))==t),c={n:ix('نام پزشک'),z:ix('منطقه'),p:ix('مکان'),l:ix('سطح'),s:ix('تخصص'),w:ix('رابطه کاری')},fi=ix('وضعیت تمام وقتی'),ei=ix('تاریخ پایان کار (تسویه حساب)'),ri=ix('دلیل قطع همکاری'),pi=ix('تاریخ شروع فعالیت در مطب یا بخش خصوصی'),nidI=ix('کد ملی'),mcI=ix('شماره نظام پزشکی'),sdI=ix('تاریخ شروع بکار');
 if(Object.values(c).some(v=>v<0))throw Error('ستون‌های فایل مطابق فایل پایگاه داده نیست');
 const M={};K.forEach(k=>M[L[k][0]]=k);const FM={};FTK.forEach(k=>FM[FT[k][0]]=k);let bad=0;const r=[];
@@ -274,5 +278,5 @@ return{r,bad}}
 function bindUpd(){$('ub').onclick=async()=>{if(ROLE!='admin')return;const fEl=$('fl'),f=fEl.files[0],u=$('us');if(!f){u.textContent='فایل را انتخاب کنید.';return}u.textContent='در حال پردازش...';
 try{if(typeof XLSX=='undefined')throw Error('کتابخانه اکسل بارگذاری نشد');const wb=XLSX.read(await f.arrayBuffer()),ws=wb.Sheets['فهرست پزشکان']||wb.Sheets[wb.SheetNames[0]],{r,bad}=parseRows(XLSX.utils.sheet_to_json(ws,{header:1,defval:''}));
 if(!r.length)throw Error('هیچ پزشکی پیدا نشد');D.r=r;index();const{ok,msg}=await saveD();
-u.textContent=`انجام شد: ${r.length} ردیف.`+(bad?` ${bad} ردیف رابطه کاری نامعتبر داشت و «نامشخص» شمرده شد.`:'')+(ok?' در این مرورگر ذخیره شد.':' فقط در همین نمایش اعمال شد؛ ذخیره محلی ممکن نشد: '+msg)}catch(x){u.textContent='خطا: '+x.message}}}
+u.textContent=`انجام شد: ${r.length} ردیف.`+(bad?` ${bad} ردیف رابطه کاری نامعتبر داشت و «نامشخص» شمرده شد.`:'')+(ok?' برای همه ذخیره شد.':' فقط در همین نمایش اعمال شد؛ ذخیره برای دیگران ممکن نشد: '+msg)}catch(x){u.textContent='خطا: '+x.message}}}
 </script></body></html>
